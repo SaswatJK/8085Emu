@@ -142,6 +142,7 @@ int main(){
   std::cout<<"Arena size is: "<<a1.arenaSize;
   std::cout<<"Arena address is: "<<a1.arenaAddress;
   */
+  /*
     stack entityStack = initStack(1024);
     playerCharacter* char1 = initCharacter(&entityStack, 100, 100, 100);
     std::cout<<"Character health before damage: "<<char1->mHealth;
@@ -154,5 +155,6 @@ int main(){
     waveDamage(&initialWave, 50);
     std::cout<<"\n Monster health after damage: "<<testMonster->mHealth;
     printDeadMonsters(&initialWave);
+  */
     return 0;
 }
