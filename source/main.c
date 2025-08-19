@@ -61,6 +61,30 @@ void iterateEachByte(char* sentence){
     printEachWord(sentence, *currentWordIndex, (*currentByteIndex - *currentWordIndex));
 }
 
+typedef enum {
+    ADDR = 0,
+    ADDM,
+    SUBR,
+    SUBM,
+    MOVRR,
+    MOVMR,
+    MOVRM,
+    MVIM,
+    LXIB,
+    LXID,
+    LXIH,
+    STAXB,
+    STAXD,
+    STAXH,
+    STA,
+    LDA,
+    SHLD,
+    LHLD
+}Instructions;
+
+//Make an instruciton decoder and machine cycle encoder that uses these.
+//We can basically allocate a region in memory for "Stack" that is used by stack pointer for stuff like branching.
+
 //Making an 8085 microprocessor.
 typedef struct Architecture{
     struct{
@@ -148,6 +172,15 @@ byte fetchOPCODE(CPU* cpu, word address){
     return OPCODE;
 };
 
+void parseOPCODE(){
+
+}
+
+void writeMemory(CPU* cpu, word address, byte d){
+    cpu->Mem.Data[address] = d;
+    return;
+}
+
 CPU* initCPU(){
     CPU* temp = (CPU*)malloc(sizeof(CPU));
     /* S Z 0 AC 0 P 0 CY */
@@ -163,7 +196,11 @@ int main(){
     struct DataStruct example;
     ds example2;
     //iterateEachByte(ExampleString);
+    CPU* x8085 = initCPU();
+    writeMemory(x8085, 0x0000, 0b10010011);
     CPU x85;
+    byte code = fetchOPCODE(x8085, 0x0000);
+    printf("The opcode is: %u \n", code);
     x85.Flags = 0x00;
     x85.Flags |= (1 << 4); //set a bit.
     printf("Decimal: %u \n", x85.Flags);
