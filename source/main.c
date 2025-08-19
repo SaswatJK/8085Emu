@@ -62,133 +62,6 @@ void iterateEachByte(char* sentence){
     printEachWord(sentence, *currentWordIndex, (*currentByteIndex - *currentWordIndex));
 }
 
-void ADD_85(void* cpu, void* regi){
-    if (regi == 0){
-        printf("Error");
-        return;
-    }
-    //cpu->A = cpu->A+[register];??How to make happen???
-}
-
-typedef enum { //Remember that HL stores Memory regardless.
-    //If any of the right most 3 bits is 001 then It's memory.
-    ADDR = 0b10000000,
-    ADDM = 0b10100110,
-    SUBR = 0b10010000,
-    SUBM = 0b10010110,
-    MOVRR = 0b01000000,
-    MOVMR = 0b01110000,
-    MOVRM = 0b01000110,
-    MVIR = 0b00000000,
-    MVIM = 0b00110000,
-    LXIB = 0b00, //Load only register pair's BC, DH, DE or HL
-    LXID = 0b, //Load only register pair's BC, DH, DE or HL
-    LXIH = 0b, //Load only register pair's BC, DH, DE or HL
-    STAXR = 0b,
-    STA = 0b,
-    LDA = 0b,
-    SHLD = 0b,
-    LHLD = 0b,
-}Instructions;
-
-typedef enum {
-    B_Register = 0,
-    C_Register,
-    D_Register,
-    E_Register,
-    H_Register,
-    L_Register,
-    HL_Register,
-    A_Register,
-    NONE_Register
-}RegisterName;
-//Make an instruciton decoder and machine cycle encoder that uses these.
-//We can basically allocate a region in memory for "Stack" that is used by stack pointer for stuff like branching.
-
-typedef struct {
-    int offset;
-    int size;
-    const char* name;
-} structInfo;
-
-//Making an 8085 microprocessor.
-typedef struct Architecture{
-    struct{
-        word SP; //16 bit address.
-        word PC; //Stores 16 bit address.
-        union{
-            struct{
-                byte AddrBuffer; //A8-A15 | MSB of memory address + 8 bits of IO address.
-                byte DataAddrBuffer; //A0-A7 | Lower bits of memory address. Appears on the bus during the first clock cycle (T state) of a machine cycle. Then becomes the data bus during the second and third clock cycles.
-            };
-            word AddressBuffer;
-        }Buffer;
-        union{
-            struct{
-                byte B;
-                byte C;
-            };
-            word BC; //General purpose.
-        }BC;
-        union{
-            struct{
-                byte D;
-                byte E;
-            };
-            word DE;
-        }DE;
-        union{
-            struct{
-                byte H;
-                byte L;
-            };
-            word HL; //Data pointer.
-        }HL;
-        word IDAL; //Incrementer / Decrementer / Address Latch.
-    }RegisterArray;
-    struct{
-        byte Data[MAX_MEMORY];
-    }Mem;
-    byte IR; //Instruction register.
-    byte Flags; //The 8 flags. 0th bit is CY(Carry). 2nd bit is P. 4th bit is AC. 6th bit is Z. 7th bit is S.
-    byte A; //Accumulator.
-    byte T; //Temporary register.
-    Instructions currentInstruction;
-}CPU;
-
-static const structInfo register_table[] = {
-    //We need to make an enum of all these registers that start with 0 and are placed in this lookup table at the same 'offset' or 'enumeration'.
-    // Word registers
-    {offsetof(CPU, RegisterArray.SP), 2, "SP"},
-    {offsetof(CPU, RegisterArray.PC), 2, "PC"},
-    // Buffer union - individual bytes
-    {offsetof(CPU, RegisterArray.Buffer.AddrBuffer), 1, "AddrBuffer"},
-    {offsetof(CPU, RegisterArray.Buffer.DataAddrBuffer), 1, "DataAddrBuffer"},
-    // Buffer union - as word
-    {offsetof(CPU, RegisterArray.Buffer.AddressBuffer), 2, "AddressBuffer"},
-    // BC union - individual bytes
-    {offsetof(CPU, RegisterArray.BC.B), 1, "B"},
-    {offsetof(CPU, RegisterArray.BC.C), 1, "C"},
-    // BC union - as word
-    {offsetof(CPU, RegisterArray.BC.BC), 2, "BC"},
-    // DE union - individual bytes
-    {offsetof(CPU, RegisterArray.DE.D), 1, "D"},
-    {offsetof(CPU, RegisterArray.DE.E), 1, "E"},
-    // DE union - as word
-    {offsetof(CPU, RegisterArray.DE.DE), 2, "DE"},
-    // HL union - individual bytes
-    {offsetof(CPU, RegisterArray.HL.H), 1, "H"},
-    {offsetof(CPU, RegisterArray.HL.L), 1, "L"},
-    // HL union - as word
-    {offsetof(CPU, RegisterArray.HL.HL), 2, "HL"},
-    // Other word register
-    {offsetof(CPU, RegisterArray.IDAL), 2, "IDAL"},
-    // Individual byte registers
-    {offsetof(CPU, IR), 1, "IR"},
-    {offsetof(CPU, Flags), 1, "Flags"},
-    {offsetof(CPU, A), 1, "A"},
-    {offsetof(CPU, T), 1, "T"}
-};
 /*
     About Instructions and OPCODEs:
     Instructions and | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | |
@@ -223,8 +96,133 @@ static const structInfo register_table[] = {
     Right now, what I want to do is to basically have addresses in the memory and then take a byte out of that address through memory.
      */
 
+typedef enum { //Remember that HL stores Memory regardless.
+    //If any of the right most 3 bits is 001 then It's memory.
+    ADDR = 0b10000000,
+    ADDM = 0b10100110,
+    SUBR = 0b10010000,
+    SUBM = 0b10010110,
+    MOVRR = 0b01000000,
+    MOVMR = 0b01110000,
+    MOVRM = 0b01000110,
+    MVIR = 0b00000000,
+    MVIM = 0b00110000,
+    LXIB = 0b00, //Load only register pair's BC, DH, DE or HL
+    LXID = 0b11, //Load only register pair's BC, DH, DE or HL
+    LXIH = 0b10, //Load only register pair's BC, DH, DE or HL
+    STAXR = 0b11,
+    STA = 0b1111,
+    LDA = 0b110000,
+    SHLD = 0b01010,
+    LHLD = 0b110
+}Instructions;
+
+typedef enum {
+    B_Register = 0,
+    C_Register,
+    D_Register,
+    E_Register,
+    H_Register,
+    L_Register,
+    HL_Register,
+    A_Register,
+    NONE_Register
+    //I should probably add other registers here from which the enum value can be easily used to map stuff.
+}RegisterName;
+//Make an instruciton decoder and machine cycle encoder that uses these.
+//We can basically allocate a region in memory for "Stack" that is used by stack pointer for stuff like branching.
+
+typedef struct {
+    int offset;
+    int size;
+    const char* name;
+} structInfo;
+
+typedef struct{
+    byte Data[MAX_MEMORY];
+}Mem;
+
+//Making an 8085 microprocessor.
+typedef struct Architecture{
+    struct{
+        union{
+            struct{
+                byte AddrBuffer; //A8-A15 | MSB of memory address + 8 bits of IO address.
+                byte DataAddrBuffer; //A0-A7 | Lower bits of memory address. Appears on the bus during the first clock cycle (T state) of a machine cycle. Then becomes the data bus during the second and third clock cycles.
+            };
+            word AddressBuffer;
+        }Buffer;
+        union{
+            struct{
+                byte B;
+                byte C;
+            };
+            word BC; //General purpose.
+        }BC;
+        union{
+            struct{
+                byte D;
+                byte E;
+            };
+            word DE;
+        }DE;
+        union{
+            struct{
+                byte H;
+                byte L;
+            };
+            word HL; //Data pointer.
+        }HL;
+        word SP; //16 bit address.
+        word PC; //Stores 16 bit address.
+        word IDAL; //Incrementer / Decrementer / Address Latch.
+    }RegisterArray;
+    Mem* RAM;
+    byte IR; //Instruction register.
+    /* S Z 0 AC 0 P 0 CY */
+    byte Flags; //The 8 flags. 0th bit is CY(Carry). 2nd bit is P. 4th bit is AC. 6th bit is Z. 7th bit is S.
+    byte A; //Accumulator.
+    byte T; //Temporary register.
+    Instructions currentInstruction;
+}CPU;
+
+static const structInfo registerTable[] = {
+    //We need to make an enum of all these registers that start with 0 and are placed in this lookup table at the same 'offset' or 'enumeration'.
+    // BC union - individual bytes
+    {offsetof(CPU, RegisterArray.BC.B), 1, "B"},
+    {offsetof(CPU, RegisterArray.BC.C), 1, "C"},
+    // DE union - individual bytes
+    {offsetof(CPU, RegisterArray.DE.D), 1, "D"},
+    {offsetof(CPU, RegisterArray.DE.E), 1, "E"},
+    // HL union - individual bytes
+    {offsetof(CPU, RegisterArray.HL.H), 1, "H"},
+    {offsetof(CPU, RegisterArray.HL.L), 1, "L"},
+    // HL union - as word
+    {offsetof(CPU, RegisterArray.HL.HL), 2, "HL"},
+    // Accumulator - individual byte
+    {offsetof(CPU, A), 1, "A"},
+    // Word registers
+    {offsetof(CPU, RegisterArray.SP), 2, "SP"},
+    {offsetof(CPU, RegisterArray.PC), 2, "PC"},
+    // Buffer union - individual bytes
+    {offsetof(CPU, RegisterArray.Buffer.AddrBuffer), 1, "AddrBuffer"},
+    {offsetof(CPU, RegisterArray.Buffer.DataAddrBuffer), 1, "DataAddrBuffer"},
+    // Buffer union - as word
+    {offsetof(CPU, RegisterArray.Buffer.AddressBuffer), 2, "AddressBuffer"},
+    // BC union - as word
+    {offsetof(CPU, RegisterArray.BC.BC), 2, "BC"},
+    // DE union - as word
+    {offsetof(CPU, RegisterArray.DE.DE), 2, "DE"},
+    // Other word register
+    {offsetof(CPU, RegisterArray.IDAL), 2, "IDAL"},
+    // Individual byte registers
+    {offsetof(CPU, IR), 1, "IR"},
+    {offsetof(CPU, Flags), 1, "Flags"},
+    {offsetof(CPU, T), 1, "T"}
+};
+
 byte fetchOPCODE(CPU* cpu, word address){
-    byte OPCODE = cpu->Mem.Data[address];
+    byte OPCODE = cpu->RAM->Data[address];
     return OPCODE;
 };
 
@@ -238,21 +236,39 @@ RegisterName parseRegister(byte rightShiftedByte){
 void parseOPCODE(byte OPCODE, Instructions* currentInstruction){
     byte result = OPCODE | (0b00000000);
     //If any of the results from the RegisterName is HL/M then remember to load only the instructions that have the M in it.
-    if (result == 0)
-
+    //if (result == 0)
 }
 
 void writeMemory(CPU* cpu, word address, byte d){
-    cpu->Mem.Data[address] = d;
+    cpu->RAM->Data[address] = d;
     return;
+}
+
+void setRegister(CPU* cpu, RegisterName r, byte d){
+    structInfo* currentInfo = &registerTable[r];
+    char* writePtr = (char*) cpu;
+    writePtr += currentInfo->offset;
+    *writePtr = d;
+    return;
+    //I haven't thought of how to write to HL???? or DE or BC.
+}
+
+void ADD_OP(CPU* cpu, RegisterName r){
+    structInfo* currentInfo = &registerTable[r];
+    char* writePtr = (char*) cpu;
+    writePtr += currentInfo->offset;
+    if(currentInfo->size == 1){
+        cpu->A = cpu->A + *writePtr;
+    }
 }
 
 CPU* initCPU(){
     CPU* temp = (CPU*)malloc(sizeof(CPU));
-    /* S Z 0 AC 0 P 0 CY */
     temp->Flags;
     temp->RegisterArray.PC = 0x0000; //Reset low on the pin, then set the PC to 0000H.
-    memset(temp->Mem.Data, 0, sizeof(temp->Mem.Data));
+    Mem* tempRam = (Mem*) malloc(sizeof(Mem));
+    temp->RAM = tempRam;
+    memset(temp->RAM->Data, 0, sizeof(temp->RAM->Data));
     return temp;
 }
 
@@ -267,6 +283,11 @@ int main(){
     CPU x85;
     byte code = fetchOPCODE(x8085, 0x0000);
     printf("The opcode is: %u \n", code);
+    setRegister(x8085, C_Register, 32);
+    setRegister(x8085, A_Register, 1);
+    printf("The value of A is: %u \n", x8085->A);
+    ADD_OP(x8085, C_Register);
+    printf("The value of A is: %u \n", x8085->A);
     x85.Flags = 0x00;
     x85.Flags |= (1 << 4); //set a bit.
     printf("Decimal: %u \n", x85.Flags);
@@ -276,6 +297,6 @@ int main(){
     printf("Decimal: %u \n", x85.Flags);
     x85.Flags ^= (1 << 4); //Flip a bit.
     printf("Decimal: %u \n", x85.Flags);
-    printf("Decimal of the madx memory: %u", MAX_MEMORY);
+
     return 0;
 }
