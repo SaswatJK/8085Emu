@@ -226,17 +226,44 @@ byte fetchOPCODE(CPU* cpu, word address){
     return OPCODE;
 };
 
-RegisterName parseRegister(byte rightShiftedByte){
+RegisterName parseRegisterBinary(byte rightShiftedByte){
     RegisterName tempName =  NONE_Register; //Default Value.
     byte cleanedByte = rightShiftedByte & 0b00000111;
+    if(cleanedByte > NONE_Register)
+        return tempName;
     tempName = cleanedByte;
     return tempName;
 }
 
 void parseOPCODE(byte OPCODE, Instructions* currentInstruction){
-    byte result = OPCODE | (0b00000000);
+    byte result = OPCODE & (0b11000000);
     //If any of the results from the RegisterName is HL/M then remember to load only the instructions that have the M in it.
-    //if (result == 0)
+    switch (result) {
+        case 0: { //Immediate instructions.
+            byte destinationByte = (OPCODE >> 3);
+            RegisterName destinationReg = parseRegisterBinary(destinationByte);
+            printf("The destination register is: %u \n", destinationReg);
+            break;
+        }
+        case 64:{ //Data movement.
+            byte destinationByte = (OPCODE >> 3);
+            RegisterName destinationReg = parseRegisterBinary(destinationByte);
+            printf("The destination register is: %u \n", destinationReg);
+            byte sourceByte = OPCODE;
+            RegisterName sourceReg = parseRegisterBinary(sourceByte);
+            printf("The source register is: %u \n", sourceReg);
+            break;
+        }
+        case 128:{ //ALU.
+            byte sourceByte = (OPCODE);
+            RegisterName sourceReg = parseRegisterBinary(sourceByte);
+            printf("The source register is: %u \n", sourceReg);
+            break;
+        }
+        case 255: //Branch/Control
+            break;
+    }
+    return;
 }
 
 void writeMemory(CPU* cpu, word address, byte d){
@@ -244,17 +271,41 @@ void writeMemory(CPU* cpu, word address, byte d){
     return;
 }
 
+void readMemory(CPU* cpu, word address, RegisterName r){
+    //Read either the address itself or the contents.
+    const structInfo* currentInfo = &registerTable[r];
+    if(currentInfo->size == 2){
+        char* writePtr = (char*) cpu;
+        writePtr += currentInfo->offset;
+        *(word*)writePtr = address;
+        return;
+    }
+    else{
+        byte* writePtr = (byte*) cpu;
+        writePtr += currentInfo->offset;
+        *writePtr = cpu->RAM->Data[address];
+        return;
+    }
+}
+
+
 void setRegister(CPU* cpu, RegisterName r, byte d){
-    structInfo* currentInfo = &registerTable[r];
+    const structInfo* currentInfo = &registerTable[r];
     char* writePtr = (char*) cpu;
     writePtr += currentInfo->offset;
     *writePtr = d;
     return;
-    //I haven't thought of how to write to HL???? or DE or BC.
+}
+
+byte getRegister(CPU* cpu, RegisterName r){
+    const structInfo* currentInfo = &registerTable[r];
+    char* readPtr = (char*) cpu;
+    readPtr += currentInfo->offset;
+    return *readPtr;
 }
 
 void ADD_OP(CPU* cpu, RegisterName r){
-    structInfo* currentInfo = &registerTable[r];
+    const structInfo* currentInfo = &registerTable[r];
     char* writePtr = (char*) cpu;
     writePtr += currentInfo->offset;
     if(currentInfo->size == 1){
@@ -264,7 +315,8 @@ void ADD_OP(CPU* cpu, RegisterName r){
 
 CPU* initCPU(){
     CPU* temp = (CPU*)malloc(sizeof(CPU));
-    temp->Flags;
+    /* S Z 0 AC 0 P 0 CY */
+    temp->Flags = 0b11010101; //All flags raised?
     temp->RegisterArray.PC = 0x0000; //Reset low on the pin, then set the PC to 0000H.
     Mem* tempRam = (Mem*) malloc(sizeof(Mem));
     temp->RAM = tempRam;
@@ -288,6 +340,8 @@ int main(){
     printf("The value of A is: %u \n", x8085->A);
     ADD_OP(x8085, C_Register);
     printf("The value of A is: %u \n", x8085->A);
+
+    parseOPCODE(0b10100110, &x8085->currentInstruction);
     x85.Flags = 0x00;
     x85.Flags |= (1 << 4); //set a bit.
     printf("Decimal: %u \n", x85.Flags);
