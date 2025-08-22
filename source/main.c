@@ -105,16 +105,24 @@ typedef enum { //Remember that HL stores Memory regardless.
     MOVRR = 0b01000000,
     MOVMR = 0b01110000,
     MOVRM = 0b01000110,
-    MVIR = 0b00000000,
-    MVIM = 0b00110000,
-    LXIB = 0b00, //Load only register pair's BC, DH, DE or HL
-    LXID = 0b11, //Load only register pair's BC, DH, DE or HL
-    LXIH = 0b10, //Load only register pair's BC, DH, DE or HL
-    STAXR = 0b11,
-    STA = 0b1111,
-    LDA = 0b110000,
-    SHLD = 0b01010,
-    LHLD = 0b110
+    //00RRR110
+    MVIR = 0b00000110, //Move to register R, immediate data.
+    MVIM = 0b00110110, //Move to memory M, immediate data.
+    //Load transfer data to register from memory.
+    //00RRR001
+    LXIB = 0b00000001, //Load only register pair's BC, DH, DE or HL
+    LXID = 0b00010001, //Load only register pair's BC, DH, DE or HL
+    LXIH = 0b00100001, //Load only register pair's BC, DH, DE or HL
+    //Store transfer data to memory from register.
+    //00RRR010
+    STAXB = 0b00000010, //Load into A, data from BC
+    STAXD = 0b00010010, //Load into A, data from DE
+    //Since we are only going to be taking memory from either BC or DE, if we get the register code for HL or A...
+    STA = 0b00110010,
+    LDA = 0b00111010,
+    SHLD = 0b00100010,
+    LHLD = 0b00101010,
+    DHLD = 0b00101010,
 }Instructions;
 
 typedef enum {
