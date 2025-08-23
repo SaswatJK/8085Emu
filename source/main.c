@@ -1,3 +1,4 @@
+#include <corecrt_wconio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -89,17 +90,14 @@ void iterateEachByte(char* sentence){
     HL (M)   110  86h
     Remember that only movement instructions have 2 registers, so it's mostly just 5 bits for OPCODE and 3 bits for source register.
 */
-
 /*  Hexadecimal memory to array index calculation. Remember that data is only one byte long.
     First 2 bits = Which type of OPCODE.
-    Since MOV is the only one with 2 registers, we can ignore some destination register unlike this one...
-    Right now, what I want to do is to basically have addresses in the memory and then take a byte out of that address through memory.
+    Since MOV is the only one with 2 registers, we can ignore some destination register unlike this one... Right now, what I want to do is to basically have addresses in the memory and then take a byte out of that address through memory.
      */
-
 typedef enum { //Remember that HL stores Memory regardless.
-    //If any of the right most 3 bits is 001 then It's memory.
+    //When we are giving addresses to as operands. The first byte will always be the lower order address byte and the second byte will be the higher order address byte in memory. So an instruction like LHLD 4050H in memory will be: OPCODE + 50H + 40H.
     ADDR = 0b10000000,
-    ADDM = 0b10100110,
+    ADDM = 0b10000110, //Last 3 bits = 110->HL->Memory.
     SUBR = 0b10010000,
     SUBM = 0b10010110,
     MOVRR = 0b01000000,
@@ -120,9 +118,8 @@ typedef enum { //Remember that HL stores Memory regardless.
     //Since we are only going to be taking memory from either BC or DE, if we get the register code for HL or A...
     STA = 0b00110010,
     LDA = 0b00111010,
-    SHLD = 0b00100010,
-    LHLD = 0b00101010,
-    DHLD = 0b00101010,
+    SHLD = 0b00100010, //Load into Memory, the contents from HL register pair. Starting from the L register -> MemAddr and H register -> MemAddr + 0x0001.
+    LHLD = 0b00101010, //Load into the HL register pair, the contents of the memory location. Starting from MemAddr -> L register and MemAddr + 0x001 -> H register.
 }Instructions;
 
 typedef enum {
@@ -194,6 +191,9 @@ typedef struct Architecture{
     Instructions currentInstruction;
 }CPU;
 
+//NOTE: B, D, H hold the MSB while the respective pairs hold the LSB. 0bHHHHLLLL. We can only store to the BC and DE register pairs as pairs from the stack operations (PUSH/POP).
+//NOTE: Look at the timing diagrams and think of the way to incoroprate cycles and if it's even practical to implement it.
+
 static const structInfo registerTable[] = {
     //We need to make an enum of all these registers that start with 0 and are placed in this lookup table at the same 'offset' or 'enumeration'.
     // BC union - individual bytes
@@ -229,6 +229,19 @@ static const structInfo registerTable[] = {
     {offsetof(CPU, T), 1, "T"}
 };
 
+void ADD_OP(CPU* cpu, RegisterName r){
+    const structInfo* currentInfo = &registerTable[r];
+    char* registerPtr = (char*) cpu;
+    printf("Yes the addition function has been called! \n");
+    registerPtr += currentInfo->offset;
+    if(currentInfo->size == 1){
+        cpu->A = cpu->A + *registerPtr;
+        return;
+    }
+        cpu->A = cpu->A + cpu->RAM->Data[*(word*)registerPtr];
+        return;
+}
+
 byte fetchOPCODE(CPU* cpu, word address){
     byte OPCODE = cpu->RAM->Data[address];
     return OPCODE;
@@ -243,7 +256,7 @@ RegisterName parseRegisterBinary(byte rightShiftedByte){
     return tempName;
 }
 
-void parseOPCODE(byte OPCODE, Instructions* currentInstruction){
+void parseOPCODE(CPU* cpu, byte OPCODE, Instructions* currentInstruction){
     byte result = OPCODE & (0b11000000);
     //If any of the results from the RegisterName is HL/M then remember to load only the instructions that have the M in it.
     switch (result) {
@@ -263,8 +276,15 @@ void parseOPCODE(byte OPCODE, Instructions* currentInstruction){
             break;
         }
         case 128:{ //ALU.
-            byte sourceByte = (OPCODE);
+            byte sourceByte = (OPCODE); //No need to shift bits to the right because there's no destination except for the Accumulator.
             RegisterName sourceReg = parseRegisterBinary(sourceByte);
+            printf("The ALU case has been confirmed! \n");
+            byte addSubMask = 0b00111000;
+            byte maskedByte = addSubMask & OPCODE;
+            if(maskedByte == 0){ //It's addition. Remember we don't have to check for anomalies because the parser will not output bad OPCODEs.
+                ADD_OP(cpu, sourceReg);
+                break;
+            }
             printf("The source register is: %u \n", sourceReg);
             break;
         }
@@ -279,7 +299,7 @@ void writeMemory(CPU* cpu, word address, byte d){
     return;
 }
 
-void readMemory(CPU* cpu, word address, RegisterName r){
+void readMemory(CPU* cpu, word address, RegisterName r){ //Read memory to a register.
     //Read either the address itself or the contents.
     const structInfo* currentInfo = &registerTable[r];
     if(currentInfo->size == 2){
@@ -312,15 +332,6 @@ byte getRegister(CPU* cpu, RegisterName r){
     return *readPtr;
 }
 
-void ADD_OP(CPU* cpu, RegisterName r){
-    const structInfo* currentInfo = &registerTable[r];
-    char* writePtr = (char*) cpu;
-    writePtr += currentInfo->offset;
-    if(currentInfo->size == 1){
-        cpu->A = cpu->A + *writePtr;
-    }
-}
-
 CPU* initCPU(){
     CPU* temp = (CPU*)malloc(sizeof(CPU));
     /* S Z 0 AC 0 P 0 CY */
@@ -346,10 +357,9 @@ int main(){
     setRegister(x8085, C_Register, 32);
     setRegister(x8085, A_Register, 1);
     printf("The value of A is: %u \n", x8085->A);
-    ADD_OP(x8085, C_Register);
+    //ADD_OP(x8085, C_Register);
+    parseOPCODE(x8085, 0b10000001, &x8085->currentInstruction);
     printf("The value of A is: %u \n", x8085->A);
-
-    parseOPCODE(0b10100110, &x8085->currentInstruction);
     x85.Flags = 0x00;
     x85.Flags |= (1 << 4); //set a bit.
     printf("Decimal: %u \n", x85.Flags);
