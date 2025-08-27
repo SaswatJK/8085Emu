@@ -105,7 +105,7 @@ typedef enum { //Remember that HL stores Memory regardless.
     MOVRM = 0b01000110,
     //00RRR110
     MVIR = 0b00000110, //Move to register R, immediate data.
-    MVIM = 0b00110110, //Move to memory M, immediate data.
+    MVIM = 0b00110110, //Move to memory M, stored in HL, immediate data.
     //Load transfer data to register from memory.
     //00RRR001
     LXIB = 0b00000001, //Load only register pair's BC, DH, DE or HL
@@ -175,8 +175,8 @@ typedef struct Architecture{
         }DE;
         union{
             struct{
-                byte H;
                 byte L;
+                byte H;
             };
             word HL; //Data pointer.
         }HL;
@@ -258,6 +258,7 @@ void incrementPC(CPU* cpu, uint8_t bytes){
 }
 
 //Set register needs to be replaced with MOVR and MVI 0xHH
+//Shoudl I also get rid of the memory functions with just normal instructions?
 void setRegister(CPU* cpu, RegisterName r, byte d){
     const structInfo* currentInfo = &registerTable[r];
     char* writePtr = (char*) cpu;
@@ -273,11 +274,22 @@ byte getRegister(CPU* cpu, RegisterName r){
     return *readPtr;
 }
 
-//NOTE:I should use the setRegister, getRegister, WriteMemory, and readMemory functions instead of doing things directly/implicitly in the functions.
+//NOTE: I should use the setRegister, getRegister, WriteMemory, and readMemory functions instead of doing things directly/implicitly in the functions.
 //NOTE: Programs with OPCODE and data of the program should be stored in a special region of memory itself. This is called the ROM? Remember the Program Counter points to the next address to execute. The PC points to a series of contiguous address continually if the program doesn't branch, or there's no interrupts, and if there is, it will point to the new address where a new program will start.
 //NOTE: When branching takes place, the return address is pushed to the Stack. When a return instruciton is executed, the Stack address is popped, and basically the PC's new pointer is to that popped value. So, the SP makes it easier to do recursive stuff.
 
 void LHLD_OP(CPU* cpu, RegisterName r);
+
+void LXI_OP(CPU* cpu, RegisterName r){
+    const structInfo* destInfo = &registerTable[r];
+    char* destPtr = (char*) cpu;
+    destPtr = destPtr + destInfo->offset;
+    word* destReg = (word*) destPtr;
+    //Can also write to BC and DH?? OR can it only be written by stack? I am confused.
+    *destReg = (cpu->RAM->Data[cpu->RegisterArray.PC + 2] << 8) | cpu->RAM->Data[cpu->RegisterArray.PC + 1]; //This way I can do H and L and get it in correct order.
+    incrementPC(cpu, 3);
+    return;
+}
 
 void MVI_OP(CPU* cpu, RegisterName r){
     const structInfo* currentInfo = &registerTable[r];
@@ -285,9 +297,31 @@ void MVI_OP(CPU* cpu, RegisterName r){
     registerPtr += currentInfo->offset;
     if(currentInfo->size == 1){
         *registerPtr = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)];
+        incrementPC(cpu, 2);
         return;
     }
     //increment by 2 bytes for this, 3 bytes for the MVI_M
+    cpu->RAM->Data[*(word*)registerPtr] = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)]; //Write to a memory which is stored in the HL register, the contents from the instruction operand.
+    incrementPC(cpu, 2);
+}
+
+void MOV_OP(CPU* cpu, RegisterName src, RegisterName dest){
+    const structInfo* srcInfo = &registerTable[src];
+    const structInfo* destInfo = &registerTable[dest];
+    char* srcPtr = (char*) cpu;
+    srcPtr = srcPtr + srcInfo->offset;
+    char* destPtr = (char*) cpu;
+    destPtr = destPtr + destInfo->offset;
+    byte srcData;
+    srcData = (srcInfo->size == 1) ? *srcPtr : cpu->RAM->Data[*(word*)srcPtr];
+    if (destInfo->size == 1){
+        *destPtr = srcData;
+        incrementPC(cpu, 1);
+        return;
+    }
+    cpu->RAM->Data[*(word*)destPtr] = srcData;
+    incrementPC(cpu, 1);
+    return;
 }
 
 void ADD_OP(CPU* cpu, RegisterName r){
@@ -297,9 +331,11 @@ void ADD_OP(CPU* cpu, RegisterName r){
     registerPtr += currentInfo->offset;
     if(currentInfo->size == 1){
         cpu->A = cpu->A + *registerPtr;
+        incrementPC(cpu, 1);
         return;
     }
         cpu->A = cpu->A + cpu->RAM->Data[*(word*)registerPtr];
+        incrementPC(cpu, 1);
         return;
 }
 
@@ -334,13 +370,15 @@ void decodeOPCODE(CPU* cpu){
             byte immediateMask = 0b00000111;
             byte maskedByte = OPCODE & immediateMask;
             if (maskedByte == 1){ //LXI
+                LXI_OP(cpu, destinationReg);
                 return;
             }
             else if (maskedByte == 6){ //MVI
-
+                MVI_OP(cpu, destinationReg);
+                return;
             }
             break;
-
+        }
         case 64:{ //Data movement.
             byte destinationByte = (OPCODE >> 3);
             RegisterName destinationReg = parseRegisterBinary(destinationByte);
@@ -348,6 +386,7 @@ void decodeOPCODE(CPU* cpu){
             byte sourceByte = OPCODE;
             RegisterName sourceReg = parseRegisterBinary(sourceByte);
             printf("The source register is: %u \n", sourceReg);
+            MOV_OP(cpu, sourceReg, destinationReg);
             break;
         }
         case 128:{ //ALU.
@@ -358,7 +397,6 @@ void decodeOPCODE(CPU* cpu){
             byte maskedByte = addSubMask & OPCODE;
             if(maskedByte == 0){ //It's addition. Remember we don't have to check for anomalies because the parser will not output bad OPCODEs.
                 ADD_OP(cpu, sourceReg);
-                incrementPC(cpu, 2);
                 break;
             }
             printf("The source register is: %u \n", sourceReg);
@@ -372,11 +410,10 @@ void decodeOPCODE(CPU* cpu){
 
 void runProgram(CPU* cpu, word programAddress){
     cpu->RegisterArray.PC = programAddress;
-    //while(cpu->RegisterArray.PC != 0x0000){
-        //decodeOPCODE(cpu, )
-    //}
+    while(cpu->RegisterArray.PC != 0x0107){
+        decodeOPCODE(cpu);
+    }
     //Problem is I don't have a quit instruction.
-    decodeOPCODE(cpu);
     return;
 }
 
@@ -400,7 +437,14 @@ int main(){
     setRegister(x8085, C_Register, 32);
     setRegister(x8085, A_Register, 1);
     printf("The value of A is: %u \n", x8085->A);
-    writeMemory(x8085, 0x0100, 0b10000001); //We would want to read form a file to a program.
+    writeMemory(x8085, 0x0100, 0b00110001); //LXI HL
+    writeMemory(x8085, 0x0101, 0xF0);
+    writeMemory(x8085, 0x0102, 0xF0);
+    writeMemory(x8085, 0x0103, 0b00110110); //MVI M
+    writeMemory(x8085, 0x0104, 32);
+    writeMemory(x8085, 0x0105, 0b01001110); //MOV A, HL
+    writeMemory(x8085, 0x0106, 0b10000001); //ADD A, C
+    //We would want to read form a file to a program.
     runProgram(x8085, 0x0100);
     printf("The value of A is: %u \n", x8085->A);
 
