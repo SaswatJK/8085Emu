@@ -131,6 +131,8 @@ typedef enum {
     L_Register,
     HL_Register,
     A_Register,
+    SP_Register,
+    PC_Register,
     NONE_Register
     //I should probably add other registers here from which the enum value can be easily used to map stuff.
 }RegisterName;
@@ -229,6 +231,54 @@ static const structInfo registerTable[] = {
     {offsetof(CPU, T), 1, "T"}
 };
 
+void writeMemory(CPU* cpu, word address, byte d){
+    cpu->RAM->Data[address] = d;
+    return;
+}
+
+void readMemory(CPU* cpu, word address, RegisterName r){ //Read memory to a register.
+    //Read either the address itself or the contents.
+    const structInfo* currentInfo = &registerTable[r];
+    if(currentInfo->size == 2){
+        char* writePtr = (char*) cpu;
+        writePtr += currentInfo->offset;
+        *(word*)writePtr = address;
+        return;
+    }
+    else{
+        byte* writePtr = (byte*) cpu;
+        writePtr += currentInfo->offset;
+        *writePtr = cpu->RAM->Data[address];
+        return;
+    }
+}
+
+void incrementPC(CPU* cpu, uint8_t bytes){
+    cpu->RegisterArray.PC += bytes;
+}
+
+void setRegister(CPU* cpu, RegisterName r, byte d){
+    const structInfo* currentInfo = &registerTable[r];
+    char* writePtr = (char*) cpu;
+    writePtr += currentInfo->offset;
+    *writePtr = d;
+    return;
+}
+
+byte getRegister(CPU* cpu, RegisterName r){
+    const structInfo* currentInfo = &registerTable[r];
+    char* readPtr = (char*) cpu;
+    readPtr += currentInfo->offset;
+    return *readPtr;
+}
+
+//NOTE:I should use the setRegister, getRegister, WriteMemory, and readMemory functions instead of doing things directly/implicitly in the functions.
+
+//NOTE: Programs with OPCODE and data of the program should be stored in a special region of memory itself. This is called the ROM? Remember the Program Counter points to the next address to execute. The PC points to a series of contiguous address continually if the program doesn't branch, or there's no interrupts, and if there is, it will point to the new address where a new program will start.
+//NOTE: When branching takes place, the return address is pushed to the Stack. When a return instruciton is executed, the Stack address is popped, and basically the PC's new pointer is to that popped value. So, the SP makes it easier to do recursive stuff.
+
+void LHLD_OP(CPU* cpu, RegisterName r);
+
 void ADD_OP(CPU* cpu, RegisterName r){
     const structInfo* currentInfo = &registerTable[r];
     char* registerPtr = (char*) cpu;
@@ -256,7 +306,12 @@ RegisterName parseRegisterBinary(byte rightShiftedByte){
     return tempName;
 }
 
-void parseOPCODE(CPU* cpu, byte OPCODE, Instructions* currentInstruction){
+//After every byte, the PC changes.
+//NOTE:I want to add hot-reload where the .asm file is being read to memory, and a simple keystroke will print out all register values.
+
+//Parse OPCODE can either parse OPCODE through like passing the byte itself, or it can do it, by looking at the memory location of the PC itself.
+void parseOPCODE(CPU* cpu){
+    byte OPCODE = fetchOPCODE(cpu, cpu->RegisterArray.PC);
     byte result = OPCODE & (0b11000000);
     //If any of the results from the RegisterName is HL/M then remember to load only the instructions that have the M in it.
     switch (result) {
@@ -283,6 +338,7 @@ void parseOPCODE(CPU* cpu, byte OPCODE, Instructions* currentInstruction){
             byte maskedByte = addSubMask & OPCODE;
             if(maskedByte == 0){ //It's addition. Remember we don't have to check for anomalies because the parser will not output bad OPCODEs.
                 ADD_OP(cpu, sourceReg);
+                incrementPC(cpu, 2);
                 break;
             }
             printf("The source register is: %u \n", sourceReg);
@@ -294,81 +350,45 @@ void parseOPCODE(CPU* cpu, byte OPCODE, Instructions* currentInstruction){
     return;
 }
 
-void writeMemory(CPU* cpu, word address, byte d){
-    cpu->RAM->Data[address] = d;
+void runProgram(CPU* cpu, word programAddress){
+    cpu->RegisterArray.PC = programAddress;
+    //while(cpu->RegisterArray.PC != 0x0000){
+        //parseOPCODE(cpu, )
+    //}
+    //Problem is I don't have a quit instruction.
+    parseOPCODE(cpu);
     return;
-}
-
-void readMemory(CPU* cpu, word address, RegisterName r){ //Read memory to a register.
-    //Read either the address itself or the contents.
-    const structInfo* currentInfo = &registerTable[r];
-    if(currentInfo->size == 2){
-        char* writePtr = (char*) cpu;
-        writePtr += currentInfo->offset;
-        *(word*)writePtr = address;
-        return;
-    }
-    else{
-        byte* writePtr = (byte*) cpu;
-        writePtr += currentInfo->offset;
-        *writePtr = cpu->RAM->Data[address];
-        return;
-    }
-}
-
-
-void setRegister(CPU* cpu, RegisterName r, byte d){
-    const structInfo* currentInfo = &registerTable[r];
-    char* writePtr = (char*) cpu;
-    writePtr += currentInfo->offset;
-    *writePtr = d;
-    return;
-}
-
-byte getRegister(CPU* cpu, RegisterName r){
-    const structInfo* currentInfo = &registerTable[r];
-    char* readPtr = (char*) cpu;
-    readPtr += currentInfo->offset;
-    return *readPtr;
 }
 
 CPU* initCPU(){
     CPU* temp = (CPU*)malloc(sizeof(CPU));
     /* S Z 0 AC 0 P 0 CY */
     temp->Flags = 0b11010101; //All flags raised?
-    temp->RegisterArray.PC = 0x0000; //Reset low on the pin, then set the PC to 0000H.
+    temp->RegisterArray.PC = 0x0000; //Reset low on the pin, then set the PC to 01000H.
+    temp->RegisterArray.SP = 0x00FF; //Pointing towards the top of the stack.
     Mem* tempRam = (Mem*) malloc(sizeof(Mem));
     temp->RAM = tempRam;
-    memset(temp->RAM->Data, 0, sizeof(temp->RAM->Data));
+    memset(temp->RAM->Data, 0, sizeof(temp->RAM->Data)); //Setting everything in the memory to be 0 to prevent weird errors.
     return temp;
 }
 
 //Causes the 8085 to execute the first instruction from address 0000H.
 
 int main(){
-    struct DataStruct example;
-    ds example2;
     //iterateEachByte(ExampleString);
     CPU* x8085 = initCPU();
-    writeMemory(x8085, 0x0000, 0b10010011);
-    CPU x85;
-    byte code = fetchOPCODE(x8085, 0x0000);
-    printf("The opcode is: %u \n", code);
     setRegister(x8085, C_Register, 32);
     setRegister(x8085, A_Register, 1);
     printf("The value of A is: %u \n", x8085->A);
-    //ADD_OP(x8085, C_Register);
-    parseOPCODE(x8085, 0b10000001, &x8085->currentInstruction);
+    writeMemory(x8085, 0x0100, 0b10000001); //We would want to read form a file to a program.
+    runProgram(x8085, 0x0100);
     printf("The value of A is: %u \n", x8085->A);
-    x85.Flags = 0x00;
+
+    /*x85.Flags = 0x00;
     x85.Flags |= (1 << 4); //set a bit.
-    printf("Decimal: %u \n", x85.Flags);
     x85.Flags &= (0 << 4); //clear a bit.
-    printf("Decimal: %u \n", x85.Flags);
     x85.Flags ^= (1 << 4); //Flip a bit.
-    printf("Decimal: %u \n", x85.Flags);
-    x85.Flags ^= (1 << 4); //Flip a bit.
-    printf("Decimal: %u \n", x85.Flags);
+    x85.Flags ^= (1 << 4); //Flip a bit.*/
 
     return 0;
 }
