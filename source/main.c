@@ -197,7 +197,7 @@ typedef struct Architecture{
 //NOTE: Look at the timing diagrams and think of the way to incoroprate cycles and if it's even practical to implement it.
 
 static const structInfo registerTable[] = {
-    //We need to make an enum of all these registers that start with 0 and are placed in this lookup table at the same 'offset' or 'enumeration'.
+    //The array of struct Infos is stored in the array in the same order as the enum of registers. So, when we use B register, that's the 'first' member in the enum, it will take the first element of this array, so it will take informatin about the offset in the struct, of the register, it's size, and it's name (which is mostly for our own ease).
     // BC union - individual bytes
     {offsetof(CPU, RegisterArray.BC.B), 1, "B"},
     {offsetof(CPU, RegisterArray.BC.C), 1, "C"},
@@ -257,6 +257,7 @@ void incrementPC(CPU* cpu, uint8_t bytes){
     cpu->RegisterArray.PC += bytes;
 }
 
+//Set register needs to be replaced with MOVR and MVI 0xHH
 void setRegister(CPU* cpu, RegisterName r, byte d){
     const structInfo* currentInfo = &registerTable[r];
     char* writePtr = (char*) cpu;
@@ -273,11 +274,21 @@ byte getRegister(CPU* cpu, RegisterName r){
 }
 
 //NOTE:I should use the setRegister, getRegister, WriteMemory, and readMemory functions instead of doing things directly/implicitly in the functions.
-
 //NOTE: Programs with OPCODE and data of the program should be stored in a special region of memory itself. This is called the ROM? Remember the Program Counter points to the next address to execute. The PC points to a series of contiguous address continually if the program doesn't branch, or there's no interrupts, and if there is, it will point to the new address where a new program will start.
 //NOTE: When branching takes place, the return address is pushed to the Stack. When a return instruciton is executed, the Stack address is popped, and basically the PC's new pointer is to that popped value. So, the SP makes it easier to do recursive stuff.
 
 void LHLD_OP(CPU* cpu, RegisterName r);
+
+void MVI_OP(CPU* cpu, RegisterName r){
+    const structInfo* currentInfo = &registerTable[r];
+    char* registerPtr = (char*) cpu;
+    registerPtr += currentInfo->offset;
+    if(currentInfo->size == 1){
+        *registerPtr = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)];
+        return;
+    }
+    //increment by 2 bytes for this, 3 bytes for the MVI_M
+}
 
 void ADD_OP(CPU* cpu, RegisterName r){
     const structInfo* currentInfo = &registerTable[r];
@@ -310,7 +321,7 @@ RegisterName parseRegisterBinary(byte rightShiftedByte){
 //NOTE:I want to add hot-reload where the .asm file is being read to memory, and a simple keystroke will print out all register values.
 
 //Parse OPCODE can either parse OPCODE through like passing the byte itself, or it can do it, by looking at the memory location of the PC itself.
-void parseOPCODE(CPU* cpu){
+void decodeOPCODE(CPU* cpu){
     byte OPCODE = fetchOPCODE(cpu, cpu->RegisterArray.PC);
     byte result = OPCODE & (0b11000000);
     //If any of the results from the RegisterName is HL/M then remember to load only the instructions that have the M in it.
@@ -319,8 +330,17 @@ void parseOPCODE(CPU* cpu){
             byte destinationByte = (OPCODE >> 3);
             RegisterName destinationReg = parseRegisterBinary(destinationByte);
             printf("The destination register is: %u \n", destinationReg);
+            //Since they're all immediate insturctinos, their source register bits (the 3 LSBs) can be used to differentiate between them.
+            byte immediateMask = 0b00000111;
+            byte maskedByte = OPCODE & immediateMask;
+            if (maskedByte == 1){ //LXI
+                return;
+            }
+            else if (maskedByte == 6){ //MVI
+
+            }
             break;
-        }
+
         case 64:{ //Data movement.
             byte destinationByte = (OPCODE >> 3);
             RegisterName destinationReg = parseRegisterBinary(destinationByte);
@@ -353,10 +373,10 @@ void parseOPCODE(CPU* cpu){
 void runProgram(CPU* cpu, word programAddress){
     cpu->RegisterArray.PC = programAddress;
     //while(cpu->RegisterArray.PC != 0x0000){
-        //parseOPCODE(cpu, )
+        //decodeOPCODE(cpu, )
     //}
     //Problem is I don't have a quit instruction.
-    parseOPCODE(cpu);
+    decodeOPCODE(cpu);
     return;
 }
 
