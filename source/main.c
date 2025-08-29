@@ -113,8 +113,8 @@ typedef enum { //Remember that HL stores Memory regardless.
     LXIH = 0b00100001, //Load only register pair's BC, DH, DE or HL
     //Store transfer data to memory from register.
     //00RRR010
-    STAXB = 0b00000010, //Load into A, data from BC
-    STAXD = 0b00010010, //Load into A, data from DE
+    STAXB = 0b00000010, //Load into the memory pointed to by BC, the contents of A.
+    STAXD = 0b00010010, //Load into the memory pointed to by DE, the contents of A.
     //Since we are only going to be taking memory from either BC or DE, if we get the register code for HL or A...
     STA = 0b00110010,
     LDA = 0b00111010,
@@ -133,6 +133,8 @@ typedef enum {
     A_Register,
     SP_Register,
     PC_Register,
+    BC_Register,
+    DE_Register,
     NONE_Register
     //I should probably add other registers here from which the enum value can be easily used to map stuff.
 }RegisterName;
@@ -175,8 +177,8 @@ typedef struct Architecture{
         }DE;
         union{
             struct{
-                byte L;
                 byte H;
+                byte L;
             };
             word HL; //Data pointer.
         }HL;
@@ -214,15 +216,15 @@ static const structInfo registerTable[] = {
     // Word registers
     {offsetof(CPU, RegisterArray.SP), 2, "SP"},
     {offsetof(CPU, RegisterArray.PC), 2, "PC"},
+    // BC union - as word
+    {offsetof(CPU, RegisterArray.BC.BC), 2, "BC"},
+    // DE union - as word
+    {offsetof(CPU, RegisterArray.DE.DE), 2, "DE"},
     // Buffer union - individual bytes
     {offsetof(CPU, RegisterArray.Buffer.AddrBuffer), 1, "AddrBuffer"},
     {offsetof(CPU, RegisterArray.Buffer.DataAddrBuffer), 1, "DataAddrBuffer"},
     // Buffer union - as word
     {offsetof(CPU, RegisterArray.Buffer.AddressBuffer), 2, "AddressBuffer"},
-    // BC union - as word
-    {offsetof(CPU, RegisterArray.BC.BC), 2, "BC"},
-    // DE union - as word
-    {offsetof(CPU, RegisterArray.DE.DE), 2, "DE"},
     // Other word register
     {offsetof(CPU, RegisterArray.IDAL), 2, "IDAL"},
     // Individual byte registers
@@ -278,63 +280,126 @@ byte getRegister(CPU* cpu, RegisterName r){
 //NOTE: Programs with OPCODE and data of the program should be stored in a special region of memory itself. This is called the ROM? Remember the Program Counter points to the next address to execute. The PC points to a series of contiguous address continually if the program doesn't branch, or there's no interrupts, and if there is, it will point to the new address where a new program will start.
 //NOTE: When branching takes place, the return address is pushed to the Stack. When a return instruciton is executed, the Stack address is popped, and basically the PC's new pointer is to that popped value. So, the SP makes it easier to do recursive stuff.
 
-void LHLD_OP(CPU* cpu, RegisterName r);
+//NOTE: VERY IMPORTANT: SINCE I AM NOT USING THE ADDRESS BUS OR THE DATA BUS, I AM IGNORING ENDIAN NESS. I should have the layout of L-H HL and I should access HL as H <<8 + L with the address bus, however I don't have that setup till now. So I have just straight up read directly form the operands, which are on the form of: LL HH as HH LL by byte shifting. I also assume that decoding is done.
 
-void LXI_OP(CPU* cpu, RegisterName r){
-    const structInfo* destInfo = &registerTable[r];
-    char* destPtr = (char*) cpu;
-    destPtr = destPtr + destInfo->offset;
-    word* destReg = (word*) destPtr;
-    //Can also write to BC and DH?? OR can it only be written by stack? I am confused.
-    *destReg = (cpu->RAM->Data[cpu->RegisterArray.PC + 2] << 8) | cpu->RAM->Data[cpu->RegisterArray.PC + 1]; //This way I can do H and L and get it in correct order.
+//If I get too much error, i shoudl make a struct that each instrucitoion returns, which includes an increment status, so taht I don't miss increments.
+
+void LDAX_OP(CPU* cpu, RegisterName r){
+    //REMEMBER TO CHANGE INCREMENTPC VALUE IF WE IMPLEENT THIS FUNCTION
+    incrementPC(cpu, 0);
+    return;
+}
+
+void SHLD_OP(CPU* cpu, RegisterName r){ //Store to the memory addresses, the values of HL pair.
+    word memoryAddress;
+    memoryAddress = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)]; //Lower Address.
+    memoryAddress |= (cpu->RAM->Data[(cpu->RegisterArray.PC + 2)] << 8);
+    cpu->RAM->Data[memoryAddress] = cpu->RegisterArray.HL.L;
+    cpu->RAM->Data[memoryAddress + 1] = cpu->RegisterArray.HL.H;
+    incrementPC(cpu, 3);
+    return;
+}
+void LHLD_OP(CPU* cpu, RegisterName r){ //Load the contents of memory addresses to the HL pair.
+    word memoryAddress;
+    memoryAddress = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)]; //Lower Address.
+    memoryAddress |= (cpu->RAM->Data[(cpu->RegisterArray.PC + 2)] << 8);
+    cpu->RegisterArray.HL.L = cpu->RAM->Data[memoryAddress];
+    cpu->RegisterArray.HL.H = cpu->RAM->Data[memoryAddress + 1];
     incrementPC(cpu, 3);
     return;
 }
 
-void MVI_OP(CPU* cpu, RegisterName r){
-    const structInfo* currentInfo = &registerTable[r];
-    char* registerPtr = (char*) cpu;
-    registerPtr += currentInfo->offset;
-    if(currentInfo->size == 1){
-        *registerPtr = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)];
+void LDA_OP(CPU* cpu, RegisterName r){ //Load to the accumulator register, the content of the memory address given as operand.
+    cpu->A = cpu->RAM->Data[(cpu->RAM->Data[(cpu->RegisterArray.PC + 2)] << 8) | (cpu->RAM->Data[(cpu->RegisterArray.PC + 1)])];
+    incrementPC(cpu, 3);
+    return;
+}
+
+void STA_OP(CPU* cpu, RegisterName r){ //Store to the memory address given as operands, the content of the accumulator register.
+    cpu->RAM->Data[(cpu->RAM->Data[(cpu->RegisterArray.PC + 2)] << 8) | (cpu->RAM->Data[(cpu->RegisterArray.PC + 1)])] = cpu->A;
+    incrementPC(cpu, 3);
+    return;
+}
+
+void STAX_OP(CPU* cpu, RegisterName r){ //Store to the memory address in the register pairs, the value of the accumulator.
+    //Problem with STAX is that only the 'stack' can write to BC and DE proper, so this is a useless instruciton right now.
+    const structInfo* srcInfo = &registerTable[r];
+    char* srcReg = (char*) cpu;
+    srcReg += srcInfo->offset;
+    cpu->RAM->Data[*(word*)srcReg] = cpu->A;
+    incrementPC(cpu, 1);
+    return;
+}
+
+void LXI_OP(CPU* cpu, RegisterName r){ //Load register pairs with the immediate operands.
+    const structInfo* destInfo = &registerTable[r];
+    char* destReg = (char*) cpu;
+    destReg += destInfo->offset;
+    //Can also write to BC and DE?? OR can it only be written by stack? I am confused.
+    *(word*)destReg = (cpu->RAM->Data[cpu->RegisterArray.PC + 2] << 8) | cpu->RAM->Data[cpu->RegisterArray.PC + 1]; //This way I can do H and L and get it in correct order. //Assuming it's already decoded as well.
+    incrementPC(cpu, 3);
+    return;
+}
+
+void MVI_OP(CPU* cpu, RegisterName r){ //Load register, or memory, with immediate operand.
+    const structInfo* destInfo = &registerTable[r];
+    char* destReg = (char*) cpu;
+    destReg += destInfo->offset;
+    if(destInfo->size == 1){
+        *destReg = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)]; //Accessing the operand.
         incrementPC(cpu, 2);
         return;
     }
-    //increment by 2 bytes for this, 3 bytes for the MVI_M
-    cpu->RAM->Data[*(word*)registerPtr] = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)]; //Write to a memory which is stored in the HL register, the contents from the instruction operand.
+    cpu->RAM->Data[*(word*)destReg] = cpu->RAM->Data[(cpu->RegisterArray.PC + 1)]; //Write to a memory which is stored in the HL register, the contents from the instruction operand.
     incrementPC(cpu, 2);
+    return;
 }
 
 void MOV_OP(CPU* cpu, RegisterName src, RegisterName dest){
     const structInfo* srcInfo = &registerTable[src];
     const structInfo* destInfo = &registerTable[dest];
-    char* srcPtr = (char*) cpu;
-    srcPtr = srcPtr + srcInfo->offset;
-    char* destPtr = (char*) cpu;
-    destPtr = destPtr + destInfo->offset;
+    char* srcReg = (char*) cpu;
+    srcReg = srcReg + srcInfo->offset;
+    char* destReg = (char*) cpu;
+    destReg = destReg + destInfo->offset;
     byte srcData;
-    srcData = (srcInfo->size == 1) ? *srcPtr : cpu->RAM->Data[*(word*)srcPtr];
+    srcData = (srcInfo->size == 1) ? *srcReg : cpu->RAM->Data[*(word*)srcReg];
     if (destInfo->size == 1){
-        *destPtr = srcData;
+        *destReg = srcData;
         incrementPC(cpu, 1);
         return;
     }
-    cpu->RAM->Data[*(word*)destPtr] = srcData;
+    cpu->RAM->Data[*(word*)destReg] = srcData;
     incrementPC(cpu, 1);
     return;
 }
 
 void ADD_OP(CPU* cpu, RegisterName r){
-    const structInfo* currentInfo = &registerTable[r];
-    char* registerPtr = (char*) cpu;
-    printf("Yes the addition function has been called! \n");
-    registerPtr += currentInfo->offset;
-    if(currentInfo->size == 1){
-        cpu->A = cpu->A + *registerPtr;
+    const structInfo* srcInfo = &registerTable[r];
+    char* srcReg = (char*) cpu;
+    //printf("Yes the addition function has been called! \n");
+    srcReg += srcInfo->offset;
+    if(srcInfo->size == 1){
+        cpu->A = cpu->A + *srcReg;
         incrementPC(cpu, 1);
         return;
     }
-        cpu->A = cpu->A + cpu->RAM->Data[*(word*)registerPtr];
+        cpu->A = cpu->A + cpu->RAM->Data[*(word*)srcReg];
+        incrementPC(cpu, 1);
+        return;
+}
+
+void SUB_OP(CPU* cpu, RegisterName r){
+    //I'll ignore the whole sign thing.
+    const structInfo* srcInfo = &registerTable[r];
+    char* srcReg = (char*) cpu;
+    srcReg += srcInfo->offset;
+    if(srcInfo->size == 1){
+        cpu->A = cpu->A - *srcReg;
+        incrementPC(cpu, 1);
+        return;
+    }
+        cpu->A = cpu->A - cpu->RAM->Data[*(word*)srcReg];
         incrementPC(cpu, 1);
         return;
 }
@@ -377,6 +442,40 @@ void decodeOPCODE(CPU* cpu){
                 MVI_OP(cpu, destinationReg);
                 return;
             }
+            else if (maskedByte == 2){ //STAX, STA, LDA, SHLD, LHLD
+                switch (destinationReg) {
+                    case B_Register: {
+                        STAX_OP(cpu, destinationReg);
+                        break;
+                    }
+                    case D_Register: {
+                        STAX_OP(cpu, destinationReg);
+                        break;
+                    }
+                    case HL_Register: {
+                        STA_OP(cpu, destinationReg);
+                        break;
+                    }
+                    case A_Register: {
+                        LDA_OP(cpu, destinationReg);
+                        break;
+                    }
+                    case L_Register: {
+                        LHLD_OP(cpu, HL_Register);
+                        break;
+                    }
+                    case E_Register: {
+                        LDAX_OP(cpu, D_Register); //Haven't even added this instruction yet.
+                        break;
+                    }
+                    case H_Register: {
+                        SHLD_OP(cpu, HL_Register);
+                        break;
+                    }
+                    break;
+                }
+                return;
+            }
             break;
         }
         case 64:{ //Data movement.
@@ -397,6 +496,10 @@ void decodeOPCODE(CPU* cpu){
             byte maskedByte = addSubMask & OPCODE;
             if(maskedByte == 0){ //It's addition. Remember we don't have to check for anomalies because the parser will not output bad OPCODEs.
                 ADD_OP(cpu, sourceReg);
+                break;
+            }
+            else{
+                SUB_OP(cpu, sourceReg);
                 break;
             }
             printf("The source register is: %u \n", sourceReg);
@@ -434,11 +537,12 @@ CPU* initCPU(){
 int main(){
     //iterateEachByte(ExampleString);
     CPU* x8085 = initCPU();
-    setRegister(x8085, C_Register, 32);
+    //setRegister(x8085, C_Register, 32);
     setRegister(x8085, A_Register, 1);
     printf("The value of A is: %u \n", x8085->A);
+    //Let's treat the way I write data into the memory as if it's already been decoded by the decoder. So techincally the programmer wrote LXI HL, F030H.
     writeMemory(x8085, 0x0100, 0b00110001); //LXI HL
-    writeMemory(x8085, 0x0101, 0xF0);
+    writeMemory(x8085, 0x0101, 0x30);
     writeMemory(x8085, 0x0102, 0xF0);
     writeMemory(x8085, 0x0103, 0b00110110); //MVI M
     writeMemory(x8085, 0x0104, 32);
