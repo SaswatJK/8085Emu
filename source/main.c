@@ -6,6 +6,7 @@
 #include <uchar.h>
 #include <string.h>
 
+typedef uint8_t u8;
 typedef uint32_t u32;
 typedef uint16_t u16;
 typedef unsigned char byte;
@@ -61,6 +62,8 @@ void iterateEachByte(char* sentence){
         currentLetter = sentence[*currentByteIndex];
     }
     printEachWord(sentence, *currentWordIndex, (*currentByteIndex - *currentWordIndex));
+    free(currentByteIndex);
+    free(currentWordIndex);
 }
 
 /*
@@ -96,31 +99,47 @@ void iterateEachByte(char* sentence){
      */
 typedef enum { //Remember that HL stores Memory regardless.
     //When we are giving addresses to as operands. The first byte will always be the lower order address byte and the second byte will be the higher order address byte in memory. So an instruction like LHLD 4050H in memory will be: OPCODE + 50H + 40H.
-    ADDR = 0b10000000,
-    ADDM = 0b10000110, //Last 3 bits = 110->HL->Memory.
-    SUBR = 0b10010000,
-    SUBM = 0b10010110,
-    MOVRR = 0b01000000,
-    MOVMR = 0b01110000,
-    MOVRM = 0b01000110,
+    ADD = 0b10000000,
+    //ADDM = 0b10000110, //Last 3 bits = 110->HL->Memory.
+    SUB = 0b10010000,
+    //SUBM = 0b10010110,
+    MOV = 0b01000000,
+    //MOVMR = 0b01110000,
+    //MOVRM = 0b01000110,
     //00RRR110
-    MVIR = 0b00000110, //Move to register R, immediate data.
-    MVIM = 0b00110110, //Move to memory M, stored in HL, immediate data.
+    MVI = 0b00000110, //Move to register R, immediate data.
+    //MVIM = 0b00110110, //Move to memory M, stored in HL, immediate data.
     //Load transfer data to register from memory.
     //00RRR001
-    LXIB = 0b00000001, //Load only register pair's BC, DH, DE or HL
-    LXID = 0b00010001, //Load only register pair's BC, DH, DE or HL
-    LXIH = 0b00100001, //Load only register pair's BC, DH, DE or HL
+    //LXIB = 0b00000001, //Load only register pair's BC, DH, DE or HL
+    //LXID = 0b00010001, //Load only register pair's BC, DH, DE or HL
+    //LXIH = 0b00100001, //Load only register pair's BC, DH, DE or HL
+    LXI = 0b00000001,
     //Store transfer data to memory from register.
     //00RRR010
-    STAXB = 0b00000010, //Load into the memory pointed to by BC, the contents of A.
-    STAXD = 0b00010010, //Load into the memory pointed to by DE, the contents of A.
+    //STAXB = 0b00000010, //Load into the memory pointed to by BC, the contents of A.
+    //STAXD = 0b00010010, //Load into the memory pointed to by DE, the contents of A.
+    STAX = 0b00000010,
     //Since we are only going to be taking memory from either BC or DE, if we get the register code for HL or A...
     STA = 0b00110010,
     LDA = 0b00111010,
     SHLD = 0b00100010, //Load into Memory, the contents from HL register pair. Starting from the L register -> MemAddr and H register -> MemAddr + 0x0001.
     LHLD = 0b00101010, //Load into the HL register pair, the contents of the memory location. Starting from MemAddr -> L register and MemAddr + 0x001 -> H register.
-}Instructions;
+}Instruction;
+
+Instruction stringToInstruction(const char* keyword){
+    if (strcmp(keyword, "ADD") == 0) return ADD;
+    else if (strcmp(keyword, "SUB") == 0) return SUB;
+    else if (strcmp(keyword, "MOV") == 0) return MOV;
+    else if (strcmp(keyword, "MVI") == 0) return MVI;
+    else if (strcmp(keyword, "LXI") == 0) return LXI;
+    else if (strcmp(keyword, "STAX") == 0) return STAX;
+    else if (strcmp(keyword, "STA") == 0) return STA;
+    else if (strcmp(keyword, "LDA") == 0) return LDA;
+    else if (strcmp(keyword, "SHLD") == 0) return SHLD;
+    else if (strcmp(keyword, "LHLD") == 0) return LHLD;
+    return 0;
+}
 
 typedef enum {
     B_Register = 0,
@@ -140,6 +159,44 @@ typedef enum {
 }RegisterName;
 //Make an instruciton decoder and machine cycle encoder that uses these.
 //We can basically allocate a region in memory for "Stack" that is used by stack pointer for stuff like branching.
+
+//Instruction REG REG, OPERAND OPERAND
+
+typedef struct{ //Size of the struct is 64 + 64
+    const char* program;
+    u16 lineNum; //Line number. This is important only to keep track of things.
+    u16 currentTokenIndex; //Pointer to the current token that is being anaylzed.
+    u16 currentCharIndex; //Pointer to the current character in the line.
+    u8 currentCharOnLineIndex; //Maybe useful in the future to keep track of the character on the line itself, maybe perhaps for error messages?
+}Interpreter;
+
+//Can I use the previous enum for instructions, and add an "OPERAND" section to it? I am confused as hell. Genuinely can't understand if I just outarchitect this problem or not.
+//Also need to conver the strings to integers.
+
+Interpreter* initializeInterpreter(const char* program){
+    Interpreter* temp = (Interpreter*)malloc(sizeof(Interpreter));
+    temp->program = program;
+    temp->lineNum = 0;
+    temp->currentCharIndex = 0;
+    temp->currentTokenIndex = 0;
+    temp->currentCharOnLineIndex = 0;
+    return temp;
+}
+
+void marchThrough(Interpreter* interpreter){
+    if(interpreter->program[interpreter->currentCharIndex+1] != '0')
+        interpreter->currentCharIndex++;
+}
+
+byte encodeOPCODE(Instruction ins, Interpreter* interpreter){
+    return 0;
+}
+
+void interpretLine(Interpreter* interpreter){
+    return;
+}
+
+
 
 typedef struct {
     int offset;
@@ -192,7 +249,7 @@ typedef struct Architecture{
     byte Flags; //The 8 flags. 0th bit is CY(Carry). 2nd bit is P. 4th bit is AC. 6th bit is Z. 7th bit is S.
     byte A; //Accumulator.
     byte T; //Temporary register.
-    Instructions currentInstruction;
+    Instruction currentInstruction;
 }CPU;
 
 //NOTE: B, D, H hold the MSB while the respective pairs hold the LSB. 0bHHHHLLLL. We can only store to the BC and DE register pairs as pairs from the stack operations (PUSH/POP).
