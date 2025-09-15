@@ -1,3 +1,4 @@
 build/
 build.bat
 build.sh
+main.cpp

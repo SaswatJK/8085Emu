@@ -13,6 +13,13 @@ typedef unsigned char byte;
 typedef char16_t word;
 #define MAX_MEMORY 0xFFFF
 
+typedef struct tempStruct {
+    byte z;
+    u32 x;
+    byte y;
+}ts;
+
+
 typedef struct DataStruct{
     int x;
 }ds;
