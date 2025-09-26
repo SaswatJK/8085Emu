@@ -13,13 +13,6 @@ typedef unsigned char byte;
 typedef char16_t word;
 #define MAX_MEMORY 0xFFFF
 
-typedef struct tempStruct {
-    byte z;
-    u32 x;
-    byte y;
-}ts;
-
-
 typedef struct DataStruct{
     int x;
 }ds;
@@ -169,12 +162,24 @@ typedef enum {
 
 //Instruction REG REG, OPERAND OPERAND
 
+typedef enum {
+    NO_OPERANDS,
+    ONE_OPERAND,
+    TWO_OPERANDS,
+    NONE //Error
+}OperationType;
+
+typedef enum {
+    TOKEN_INSTRUCTION,
+    TOKEN_OPERAND
+}Token;
+
 typedef struct{ //Size of the struct is 64 + 64
     const char* program;
     u16 lineNum; //Line number. This is important only to keep track of things.
     u16 currentTokenIndex; //Pointer to the current token that is being anaylzed.
     u16 currentCharIndex; //Pointer to the current character in the line.
-    u8 currentCharOnLineIndex; //Maybe useful in the future to keep track of the character on the line itself, maybe perhaps for error messages?
+    u16 memoryAddress;
 }Interpreter;
 
 //Can I use the previous enum for instructions, and add an "OPERAND" section to it? I am confused as hell. Genuinely can't understand if I just outarchitect this problem or not.
@@ -186,20 +191,60 @@ Interpreter* initializeInterpreter(const char* program){
     temp->lineNum = 0;
     temp->currentCharIndex = 0;
     temp->currentTokenIndex = 0;
-    temp->currentCharOnLineIndex = 0;
+    temp->memoryAddress = 0;
     return temp;
 }
 
-void marchThrough(Interpreter* interpreter){
-    if(interpreter->program[interpreter->currentCharIndex+1] != '0')
-        interpreter->currentCharIndex++;
+// A line of assembly could look something like this: 
+// MOV A, B;
+// LDA 2051;
+// ADD B;
+
+
+void runInterpreter(Interpreter* interpreter){
+
 }
 
-byte encodeOPCODE(Instruction ins, Interpreter* interpreter){
+void skipComma(Interpreter* interepreter){
+    //We call something and then we skip the comma.
+}
+
+int HexFromString(char* dataPointer){
+    char tempValue = dataPointer[3]; //We are preserving the third byte to replace later.
+    dataPointer[3] = '\0';
+    int returnValue = (int)strtol(dataPointer, NULL, 16); //Radix of 16 means that even if the string has letters like "ABC", it will convert them to hex instead of ignoring if I had other radix. This inbuilt function is really good, you can choose other arbitrary radixes, and it will convert upto radix 20 numbers (whose "numbers" after '9' start from the letter a).
+    dataPointer[3] = tempValue;
+    return returnValue;
+}
+
+void marchThrough(Interpreter* interpreter, Token token){
+    if(interpreter->program[interpreter->currentCharIndex+1] != '\0'){
+        if(token == TOKEN_INSTRUCTION){
+            while(interpreter->program[interpreter->currentCharIndex+1] != ' '){
+                interpreter->currentCharIndex += 1;
+            }
+
+        }
+        interpreter->currentCharIndex += 1;
+
+    }
+}
+
+
+
+byte encodeOPCODE(Instruction ins, Interpreter* interpreter){ //We already will have a base opcode from the instructions, we just need to change the stuff depending on the registers and shit. So we will encode the OPCODE.
+    
     return 0;
 }
 
+
 void interpretLine(Interpreter* interpreter){
+    Instruction temp;
+    while(interpreter->program[interpreter->currentCharIndex] != ';'){
+        //We also need to figure out if it's a 2 byte or 1 byte instruction.
+        byte OPCODE = encodeOPCODE(temp, interpreter);
+        OperationType type = ONE_OPERAND;
+    }
     return;
 }
 
@@ -209,7 +254,7 @@ typedef struct {
     int offset;
     int size;
     const char* name;
-} structInfo;
+} registerInfo;
 
 typedef struct{
     byte Data[MAX_MEMORY];
@@ -262,7 +307,7 @@ typedef struct Architecture{
 //NOTE: B, D, H hold the MSB while the respective pairs hold the LSB. 0bHHHHLLLL. We can only store to the BC and DE register pairs as pairs from the stack operations (PUSH/POP).
 //NOTE: Look at the timing diagrams and think of the way to incoroprate cycles and if it's even practical to implement it.
 
-static const structInfo registerTable[] = {
+static const registerInfo registerTable[] = {
     //The array of struct Infos is stored in the array in the same order as the enum of registers. So, when we use B register, that's the 'first' member in the enum, it will take the first element of this array, so it will take informatin about the offset in the struct, of the register, it's size, and it's name (which is mostly for our own ease).
     // BC union - individual bytes
     {offsetof(CPU, RegisterArray.BC.B), 1, "B"},
@@ -304,7 +349,7 @@ void writeMemory(CPU* cpu, word address, byte d){
 
 void readMemory(CPU* cpu, word address, RegisterName r){ //Read memory to a register.
     //Read either the address itself or the contents.
-    const structInfo* currentInfo = &registerTable[r];
+    const registerInfo* currentInfo = &registerTable[r];
     if(currentInfo->size == 2){
         char* writePtr = (char*) cpu;
         writePtr += currentInfo->offset;
@@ -326,7 +371,7 @@ void incrementPC(CPU* cpu, uint8_t bytes){
 //Set register needs to be replaced with MOVR and MVI 0xHH
 //Shoudl I also get rid of the memory functions with just normal instructions?
 void setRegister(CPU* cpu, RegisterName r, byte d){
-    const structInfo* currentInfo = &registerTable[r];
+    const registerInfo* currentInfo = &registerTable[r];
     char* writePtr = (char*) cpu;
     writePtr += currentInfo->offset;
     *writePtr = d;
@@ -334,7 +379,7 @@ void setRegister(CPU* cpu, RegisterName r, byte d){
 }
 
 byte getRegister(CPU* cpu, RegisterName r){
-    const structInfo* currentInfo = &registerTable[r];
+    const registerInfo* currentInfo = &registerTable[r];
     char* readPtr = (char*) cpu;
     readPtr += currentInfo->offset;
     return *readPtr;
@@ -387,7 +432,7 @@ void STA_OP(CPU* cpu, RegisterName r){ //Store to the memory address given as op
 
 void STAX_OP(CPU* cpu, RegisterName r){ //Store to the memory address in the register pairs, the value of the accumulator.
     //Problem with STAX is that only the 'stack' can write to BC and DE proper, so this is a useless instruciton right now.
-    const structInfo* srcInfo = &registerTable[r];
+    const registerInfo* srcInfo = &registerTable[r];
     char* srcReg = (char*) cpu;
     srcReg += srcInfo->offset;
     cpu->RAM->Data[*(word*)srcReg] = cpu->A;
@@ -396,7 +441,7 @@ void STAX_OP(CPU* cpu, RegisterName r){ //Store to the memory address in the reg
 }
 
 void LXI_OP(CPU* cpu, RegisterName r){ //Load register pairs with the immediate operands.
-    const structInfo* destInfo = &registerTable[r];
+    const registerInfo* destInfo = &registerTable[r];
     char* destReg = (char*) cpu;
     destReg += destInfo->offset;
     //Can also write to BC and DE?? OR can it only be written by stack? I am confused.
@@ -406,7 +451,7 @@ void LXI_OP(CPU* cpu, RegisterName r){ //Load register pairs with the immediate 
 }
 
 void MVI_OP(CPU* cpu, RegisterName r){ //Load register, or memory, with immediate operand.
-    const structInfo* destInfo = &registerTable[r];
+    const registerInfo* destInfo = &registerTable[r];
     char* destReg = (char*) cpu;
     destReg += destInfo->offset;
     if(destInfo->size == 1){
@@ -420,8 +465,8 @@ void MVI_OP(CPU* cpu, RegisterName r){ //Load register, or memory, with immediat
 }
 
 void MOV_OP(CPU* cpu, RegisterName src, RegisterName dest){
-    const structInfo* srcInfo = &registerTable[src];
-    const structInfo* destInfo = &registerTable[dest];
+    const registerInfo* srcInfo = &registerTable[src];
+    const registerInfo* destInfo = &registerTable[dest];
     char* srcReg = (char*) cpu;
     srcReg = srcReg + srcInfo->offset;
     char* destReg = (char*) cpu;
@@ -439,7 +484,7 @@ void MOV_OP(CPU* cpu, RegisterName src, RegisterName dest){
 }
 
 void ADD_OP(CPU* cpu, RegisterName r){
-    const structInfo* srcInfo = &registerTable[r];
+    const registerInfo* srcInfo = &registerTable[r];
     char* srcReg = (char*) cpu;
     //printf("Yes the addition function has been called! \n");
     srcReg += srcInfo->offset;
@@ -455,7 +500,7 @@ void ADD_OP(CPU* cpu, RegisterName r){
 
 void SUB_OP(CPU* cpu, RegisterName r){
     //I'll ignore the whole sign thing.
-    const structInfo* srcInfo = &registerTable[r];
+    const registerInfo* srcInfo = &registerTable[r];
     char* srcReg = (char*) cpu;
     srcReg += srcInfo->offset;
     if(srcInfo->size == 1){
